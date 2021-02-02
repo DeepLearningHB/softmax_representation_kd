@@ -5,6 +5,7 @@ Unofficial Code
 made by Hanbeen Lee
 '''
 import os
+import sys
 os.environ['CUDA_VISIBLE_DEVICES'] = '2'
 import torch
 import torch.nn as nn
@@ -26,6 +27,7 @@ lr_decay_epoch = [150, 180, 210]
 lr_decay_rate = 0.1
 weight_decay = 5e-4
 momentum = 0.9
+print_freq = 100
 dataset = 'cifar100'
 
 model_t = model_dict['resnet32x4'](num_classes=100)
@@ -35,7 +37,7 @@ path_t = './save/models/resnet32x4_cifar100_lr_0.05_decay_0.0005_trial_0/resnet3
 trial = 0
 r = 1
 a = 1
-b = 1
+b = 3
 kd_T = 4
 
 
@@ -112,7 +114,7 @@ for epoch in range(1, total_epoch+1):
     losses = AverageMeter()
     top1 = AverageMeter()
     top5 = AverageMeter()
-
+    model_s.train()
     end = time.time()
 
     avg_loss_ce = 0
@@ -140,22 +142,64 @@ for epoch in range(1, total_epoch+1):
         t_s_output = teacher_classifier(feat_s[-1])
 
         loss_sr = criterion_SR(F.log_softmax(t_s_output / kd_T, dim=1), F.softmax(logit_t / kd_T, dim=1)) * (kd_T ** 2)
-
         loss_ce = criterion_CE(F.softmax(logit_s), target)
 
         avg_loss_ce += loss_ce.item()
         avg_loss_fm += loss_fm.item()
         avg_loss_sr += loss_sr.item()
+
+        acc_1, acc_5 = accuracy(logit_s, target, topk=(1, 5))
+        top1.update(acc_1[0], input.size(0))
+        top5.update(acc_5[0], input.size(0))
         count += 1
         loss = r * loss_ce + a * loss_fm + b * loss_sr
+        losses.update(loss.item())
         loss.backward()
         optimizer.step()
+        batch_time.update(time.time() - end)
+        end = time.time()
+        if idx % print_freq == 0:
+            print('Epoch: [{0}][{1}/{2}]\t'
+                  'Time {batch_time.val:.3f} ({batch_time.avg:.3f})\t'
+                  'Data {data_time.val:.3f} ({data_time.avg:.3f})\t'
+                  'Loss {loss.val:.4f} ({loss.avg:.4f})\t'
+                  'Acc@1 {top1.val:.3f} ({top1.avg:.3f})\t'
+                  'Acc@5 {top5.val:.3f} ({top5.avg:.3f})'.format(
+                epoch, idx, len(train_loader), batch_time=batch_time,
+                data_time=data_time, loss=losses, top1=top1, top5=top5))
+            sys.stdout.flush()
 
-    print(avg_loss_ce / count, avg_loss_fm / count, avg_loss_sr / count)
+    print('[Train]* Acc@1 {top1.avg:.3f} Acc@5 {top5.avg:.3f}'
+          .format(top1=top1, top5=top5))
+
+    model_s.eval()
+    with torch.no_grad():
+        val_batch_time = AverageMeter()
+        val_top1 = AverageMeter()
+        val_top5 = AverageMeter()
+        val_losses = AverageMeter()
+        for idx, (input, target) in enumerate(val_loader):
+            input = input.float().cuda()
+            target = target.cuda()
+
+            output = model_s(input)
+            loss = criterion_CE(output, target)
+            val_acc_1, val_acc_5 = accuracy(output, target, topk=(1, 5))
+            val_top1.update(val_acc_1[0], input.size(0))
+            val_top5.update(val_acc_5[0], input.size(0))
 
 
+            if idx % print_freq == 0:
+                print('Test: [{0}/{1}]\t'
+                      'Time {batch_time.val:.3f} ({batch_time.avg:.3f})\t'
+                      'Loss {loss.val:.4f} ({loss.avg:.4f})\t'
+                      'Acc@1 {top1.val:.3f} ({top1.avg:.3f})\t'
+                      'Acc@5 {top5.val:.3f} ({top5.avg:.3f})'.format(
+                       idx, len(val_loader), batch_time=batch_time, loss=losses,
+                       top1=top1, top5=top5))
 
-
+    print(' * Acc@1 {top1.avg:.3f} Acc@5 {top5.avg:.3f}'
+          .format(top1=val_top1, top5=val_top5))
 
 
 
