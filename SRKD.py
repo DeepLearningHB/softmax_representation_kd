@@ -6,7 +6,6 @@ made by Hanbeen Lee
 '''
 import os
 import sys
-os.environ['CUDA_VISIBLE_DEVICES'] = '2'
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -16,6 +15,7 @@ from torchsummary import summary
 from models.resnet import ResNet
 import torch.optim as optim
 import time
+import argparse
 
 train_batch_size = 128
 test_batch_size = 100
@@ -30,10 +30,26 @@ momentum = 0.9
 print_freq = 100
 dataset = 'cifar100'
 
-model_t = model_dict['resnet32x4'](num_classes=100)
-model_s = model_dict['resnet8x4'](num_classes=100)
+parser = argparse.ArgumentParser('argument for training')
+parser.add_argument('--model_t', type=str, default='resnet8', choices=['resnet8', 'resnet14', 'resnet20', 'resnet32', 'resnet44', 'resnet56', 'resnet110',
+                                 'resnet8x4', 'resnet32x4', 'wrn_16_1', 'wrn_16_2', 'wrn_40_1', 'wrn_40_2',
+                                 'vgg8', 'vgg11', 'vgg13', 'vgg16', 'vgg19', 'ResNet50',
+                                 'MobileNetV2', 'ShuffleV1', 'ShuffleV2'])
+parser.add_argument('--path_t', type=str, default=None)
+parser.add_argument('--model_s', type=str, default='resnet8', choices=['resnet8', 'resnet14', 'resnet20', 'resnet32', 'resnet44', 'resnet56', 'resnet110',
+                                 'resnet8x4', 'resnet32x4', 'wrn_16_1', 'wrn_16_2', 'wrn_40_1', 'wrn_40_2',
+                                 'vgg8', 'vgg11', 'vgg13', 'vgg16', 'vgg19', 'ResNet50',
+                                 'MobileNetV2', 'ShuffleV1', 'ShuffleV2'])
+parser.add_argument('--cuda_visible_devices', type=int, default=0)
+parser.add_argument('--trial', type=int, default=0)
+opt = parser.parse_args()
+os.environ['CUDA_VISIBLE_DEVICES'] = str(opt.cuda_visible_devices)
 
-path_t = './save/models/resnet32x4_cifar100_lr_0.05_decay_0.0005_trial_0/resnet32x4_best.pth'
+
+model_t = model_dict[opt.model_t](num_classes=100)
+model_s = model_dict[opt.model_s](num_classes=100)
+
+path_t = opt.path_t
 trial = 0
 r = 1
 a = 1
@@ -141,7 +157,7 @@ for epoch in range(1, total_epoch+1):
 
         t_s_output = teacher_classifier(feat_s[-1])
 
-        loss_sr = criterion_SR(F.log_softmax(t_s_output / kd_T, dim=1), F.softmax(logit_t / kd_T, dim=1)) * (kd_T ** 2)
+        loss_sr = criterion_SR(F.log_softmax(t_s_output / kd_T, dim=1), F.softmax(logit_t.detach() / kd_T, dim=1)) * (kd_T ** 2)
         loss_ce = criterion_CE(F.softmax(logit_s), target)
 
         avg_loss_ce += loss_ce.item()
