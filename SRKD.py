@@ -43,6 +43,29 @@ parser.add_argument('--model_s', type=str, default='resnet8', choices=['resnet8'
 parser.add_argument('--cuda_visible_devices', type=int, default=0)
 parser.add_argument('--trial', type=int, default=0)
 opt = parser.parse_args()
+
+selection_dict = {
+    'wrn401': ['wrn_40_1', './save/models/wrn_40_1_cifar100_lr_0.05_decay_0.0005_trial_0/wrn_40_1_best.pth',
+            'wrn_16_1', 1, 1],
+    'resnet324': ['resnet32x4', './save/models/resnet32x4_cifar100_lr_0.05_decay_0.0005_trial_0/resnet32x4_best.pth',
+            'resnet8x4', 2, 1],
+    'vgg19': ['vgg19', ' ./save/models/vgg19_cifar100_lr_0.05_decay_0.0005_trial_0/vgg19_best.pth',
+            'vgg11', 2, 1],
+    'resnet110_20': ['resnet110', ' ./save/models/resnet110_cifar100_lr_0.05_decay_0.0005_trial_0/resnet110_best.pth',
+            'resnet20', 2, 1],
+    'resnet110_32:':['resnet110', ' ./save/models/resnet110_cifar100_lr_0.05_decay_0.0005_trial_0/resnet110_best.pth',
+            'resnet32', 3, 1]
+}
+
+is_pycharm = True
+if is_pycharm:
+    options = list(selection_dict.keys())
+    arguments = selection_dict[options[1]]
+    opt.model_t = arguments[0]
+    opt.path_t = arguments[1]
+    opt.model_s = arguments[2]
+    opt.cuda_visible_devices = arguments[3]
+    opt.trial = arguments[4]
 os.environ['CUDA_VISIBLE_DEVICES'] = str(opt.cuda_visible_devices)
 
 
@@ -120,7 +143,7 @@ def accuracy(output, target, topk=(1,)):
 
 optimizer = optim.SGD(model_s.parameters(), lr=learning_rate, momentum=momentum, weight_decay=weight_decay)
 criterion_FM = nn.MSELoss()
-criterion_SR = nn.KLDivLoss()
+criterion_SR = nn.MSELoss()
 criterion_CE = nn.CrossEntropyLoss()
 
 for epoch in range(1, total_epoch+1):
@@ -149,16 +172,29 @@ for epoch in range(1, total_epoch+1):
             input = input.cuda()
             target = target.cuda()
 
-        with torch.no_grad():
-            feat_t, logit_t = model_t(input, is_feat=True, preact=True)
+
         feat_s, logit_s = model_s(input, is_feat=True, preact=True)
 
-        loss_fm = criterion_FM(feat_s[-1], feat_t[-1])
 
-        t_s_output = teacher_classifier(feat_s[-1])
+        loss_ce = criterion_CE(logit_s, target)
 
-        loss_sr = criterion_SR(F.log_softmax(t_s_output / kd_T, dim=1), F.softmax(logit_t.detach() / kd_T, dim=1)) * (kd_T ** 2)
-        loss_ce = criterion_CE(F.softmax(logit_s), target)
+        with torch.no_grad():
+            feat_t, logit_t = model_t(input, is_feat=True, preact=True)
+
+        loss_fm = criterion_FM(feat_s[-1], feat_t[-1].detach())
+
+        with torch.no_grad():
+            t_s_output = teacher_classifier(feat_s[-1])
+
+        loss_sr = criterion_SR(t_s_output ,logit_t.detach())
+        #loss_fm = criterion_FM(feat_s[-1], feat_t[-1].detach())
+
+
+
+        # loss_sr = F.kl_div(F.log_softmax(t_s_output / kd_T, dim=1), F.softmax(logit_t.detach() / kd_T, dim=1), size_average=False) * (kd_T ** 2) / logit_t.size(0)
+        #
+        # loss_ce = criterion_CE(F.softmax(logit_s), target)
+        #print(loss_sr.item(), loss_ce.item(), loss_fm.item())
 
         avg_loss_ce += loss_ce.item()
         avg_loss_fm += loss_fm.item()
