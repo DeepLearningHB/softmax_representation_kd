@@ -59,14 +59,24 @@ selection_dict = {
 
 is_pycharm = True
 if is_pycharm:
-    options = list(selection_dict.keys())
+    options = list (selection_dict.keys ())
     arguments = selection_dict[options[1]]
     opt.model_t = arguments[0]
     opt.path_t = arguments[1]
     opt.model_s = arguments[2]
     opt.cuda_visible_devices = arguments[3]
     opt.trial = arguments[4]
-os.environ['CUDA_VISIBLE_DEVICES'] = str(opt.cuda_visible_devices)
+
+# is_pycharm = True
+# if is_pycharm:
+#     options = list(selection_dict.keys())
+#     arguments = selection_dict[options[1]]
+#     opt.model_t = arguments[0]
+#     opt.path_t = arguments[1]
+#     opt.model_s = arguments[2]
+#     opt.cuda_visible_devices = arguments[3]
+#     opt.trial = arguments[4]
+os.environ['CUDA_VISIBLE_DEVICES'] = str(1)
 
 
 model_t = model_dict[opt.model_t](num_classes=100)
@@ -77,7 +87,7 @@ trial = 0
 r = 1
 a = 1
 b = 3
-kd_T = 4
+kd_T = 3
 
 
 model_t.load_state_dict(torch.load(path_t)['model'])
@@ -114,6 +124,15 @@ class AverageMeter(object):
         self.sum += val * n
         self.count += n
         self.avg = self.sum / self.count
+
+
+def kd_loss(output, target_output):
+    output = output / kd_T
+    target_output = target_output / kd_T
+    target_softmax = torch.softmax (target_output, dim=1)
+    output_log_softmax = torch.log_softmax (output, dim=1)
+    loss_kd = -torch.mean (torch.sum (output_log_softmax * target_softmax, dim=1))
+    return loss_kd
 
 
 def adjust_learning_rate(epoch, learning_rate, lr_decay_epochs,  optimizer):
@@ -186,7 +205,7 @@ for epoch in range(1, total_epoch+1):
         with torch.no_grad():
             t_s_output = teacher_classifier(feat_s[-1])
 
-        loss_sr = criterion_SR(t_s_output ,logit_t.detach())
+        loss_sr = kd_loss(t_s_output ,logit_t.detach()) * (kd_T ** 2)
         #loss_fm = criterion_FM(feat_s[-1], feat_t[-1].detach())
 
 
@@ -248,7 +267,7 @@ for epoch in range(1, total_epoch+1):
                       'Acc@1 {top1.val:.3f} ({top1.avg:.3f})\t'
                       'Acc@5 {top5.val:.3f} ({top5.avg:.3f})'.format(
                        idx, len(val_loader), batch_time=batch_time, loss=losses,
-                       top1=top1, top5=top5))
+                       top1=val_top1, top5=val_top5))
 
     print(' * Acc@1 {top1.avg:.3f} Acc@5 {top5.avg:.3f}'
           .format(top1=val_top1, top5=val_top5))
